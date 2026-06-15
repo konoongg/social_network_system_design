@@ -1,0 +1,935 @@
+openapi: 3.0.3
+info:
+  title: Social Media API
+  description: |
+    API for user registration, authentication, and managing posts with photos, comments, likes, and subscriptions.
+    Supports Russian and other CIS languages (Unicode).
+  version: 2.0.0
+servers:
+  - url: https://api.example.com/v1
+    description: Production server
+
+paths:
+  # ==================== AUTH ====================
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '200':
+          description: Successful registration, JWT token returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: Validation error (passwords mismatch, login/email/phone already taken)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: User login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Successful login, JWT token returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid login or password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/password-reset/request:
+    post:
+      tags: [Auth]
+      summary: Request password reset code
+      description: Accepts email or phone. A verification code is sent if the contact exists.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequest'
+      responses:
+        '200':
+          description: Instructions sent (regardless of existence)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "If the provided contact exists, a confirmation code has been sent."
+        '400':
+          description: Neither email nor phone provided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/password-reset/verify:
+    post:
+      tags: [Auth]
+      summary: Verify password reset code
+      description: Checks the code. On success, returns a temporary token for setting a new password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetVerifyRequest'
+      responses:
+        '200':
+          description: Code verified, reset token returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reset_token:
+                    type: string
+                    description: Temporary JWT to set a new password
+                  message:
+                    type: string
+                    example: "Code verified."
+        '400':
+          description: Invalid code, expired code, or contact mismatch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==================== POSTS ====================
+  /posts:
+    get:
+      tags: [Posts]
+      summary: Get a list of posts (feed, subscriptions, or user posts)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: source
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [feed, subscriptions, user]
+          description: |
+            feed - recommended posts (ranking by place popularity, reverse chronological);
+            subscriptions - posts from users the current user follows;
+            user - posts of a specific user (requires user_id).
+        - name: user_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: User ID (required only when source=user)
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          description: Number of posts to return (max 100)
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Pagination offset
+        - name: comments_limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 100
+            default: 20
+          description: Maximum number of comments to load per post (first N)
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PostWithComments'
+        '400':
+          description: Invalid parameters (e.g., source=user without user_id)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Posts]
+      summary: Create a new post
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostCreateRequest'
+      responses:
+        '201':
+          description: Post created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostCreateResponse'
+        '400':
+          description: Validation error (e.g., empty photo list, too many photos, description too long)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /posts/{post_id}:
+    delete:
+      tags: [Posts]
+      summary: Delete a post
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: post_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Post deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Post not found or does not belong to the user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      tags: [Posts]
+      summary: Update post description and/or geo
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: post_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostUpdateRequest'
+      responses:
+        '200':
+          description: Post updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostResponse'
+        '400':
+          description: Validation error (description too long, geo too long, or both missing)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Post not found or does not belong to the user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /posts/{post_id}/photos:
+    post:
+      tags: [Posts]
+      summary: Add a photo to an existing post
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: post_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PhotoAddRequest'
+      responses:
+        '201':
+          description: Photo added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhotoAddResponse'
+        '400':
+          description: Validation error (base64 too large, name too long)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Post not found or does not belong to the user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: A photo with the same name already exists for this user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /posts/{post_id}/photos/{photo_name}:
+    get:
+      tags: [Posts]
+      summary: Get a photo by post ID and photo name
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: post_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: photo_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Photo file (JPEG, PNG, WebP, or binary)
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Post or photo not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [Posts]
+      summary: Delete a photo from a post
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: post_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: photo_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Photo deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Post or photo not found, or does not belong to the user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==================== LIKES ====================
+  /posts/{post_id}/like:
+    post:
+      tags: [Likes]
+      summary: Like a post
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: post_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Like added
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Post not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Already liked by this user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [Likes]
+      summary: Remove a like from a post
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: post_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Like removed
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Post not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Like does not exist (user hasn't liked this post)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==================== SUBSCRIBE / UNSUBSCRIBE ====================
+  /users/{username}/subscribe:
+    post:
+      tags: [Subscriptions]
+      summary: Subscribe to a user
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Username (login) of the user to subscribe to
+      responses:
+        '200':
+          description: Successfully subscribed
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Target user not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Already subscribed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [Subscriptions]
+      summary: Unsubscribe from a user
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Username (login) of the user to unsubscribe from
+      responses:
+        '200':
+          description: Successfully unsubscribed
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Target user not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Not subscribed (no subscription to remove)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==================== COMMENTS ====================
+  /posts/{post_id}/comments:
+    get:
+      tags: [Comments]
+      summary: Get comments for a post (batched, with pagination)
+      parameters:
+        - name: post_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Number of comments to return
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Pagination offset
+      responses:
+        '200':
+          description: List of comments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CommentResponse'
+        '404':
+          description: Post not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags: [Comments]
+      summary: Create a new comment on a post
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: post_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentCreateRequest'
+      responses:
+        '201':
+          description: Comment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentResponse'
+        '400':
+          description: Validation error (text too long or empty)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Post not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /comments/{comment_id}:
+    put:
+      tags: [Comments]
+      summary: Update a comment (only by author)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: comment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentUpdateRequest'
+      responses:
+        '200':
+          description: Comment updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Not the author
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Comment not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [Comments]
+      summary: Delete a comment (only by author)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: comment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Comment deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Not the author
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Comment not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    Unauthorized:
+      description: Unauthorized (missing or invalid token)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    # ---------- AUTH ----------
+    RegisterRequest:
+      type: object
+      required: [login, email, phone, password, password_confirmation]
+      properties:
+        login:
+          type: string
+          minLength: 3
+          example: "john_doe"
+        email:
+          type: string
+          format: email
+          example: "john@example.com"
+        phone:
+          type: string
+          example: "+79001234567"
+        password:
+          type: string
+          format: password
+          minLength: 8
+          example: "Str0ng!Pass"
+        password_confirmation:
+          type: string
+          format: password
+          example: "Str0ng!Pass"
+
+    LoginRequest:
+      type: object
+      required: [login, password]
+      properties:
+        login:
+          type: string
+          example: "john_doe"
+        password:
+          type: string
+          format: password
+          example: "Str0ng!Pass"
+
+    TokenResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT token for authorization
+          example: "eyJhbGciOiJIUzI1NiIs..."
+
+    PasswordResetRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: "john@example.com"
+        phone:
+          type: string
+          example: "+79001234567"
+      minProperties: 1
+      description: At least one contact (email or phone) must be provided
+
+    PasswordResetVerifyRequest:
+      type: object
+      required: [contact, code]
+      properties:
+        contact:
+          type: string
+          description: The same email or phone the code was sent to
+          example: "john@example.com"
+        code:
+          type: string
+          description: Verification code from the message
+          example: "123456"
+
+    # ---------- POSTS ----------
+    PostCreateRequest:
+      type: object
+      required: [description, photos]
+      properties:
+        description:
+          type: string
+          maxLength: 500
+          example: "My first post"
+        geo:
+          type: string
+          maxLength: 200
+          description: Geographic coordinates or place name
+          example: "55.751244,37.618423"
+        photos:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            type: object
+            required: [name, photo_base64]
+            properties:
+              name:
+                type: string
+                description: Unique photo name (within the user's scope)
+                example: "vacation_1.jpg"
+              photo_base64:
+                type: string
+                format: byte
+                description: Base64 encoded image (max 10 MB after decode)
+          description: List of photos, each with a unique name and base64 data
+
+    PostCreateResponse:
+      type: object
+      properties:
+        post_id:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        photo_names:
+          type: array
+          items:
+            type: string
+          description: Generated or provided unique photo names
+          example: ["a1b2c3d4.jpg", "e5f6g7h8.png"]
+
+    PostUpdateRequest:
+      type: object
+      minProperties: 1
+      properties:
+        description:
+          type: string
+          maxLength: 500
+          description: New description (optional)
+          example: "Updated description"
+        geo:
+          type: string
+          maxLength: 200
+          description: New geo location (optional)
+          example: "55.7558,37.6173"
+
+    PostResponse:
+      type: object
+      properties:
+        post_id:
+          type: string
+          format: uuid
+        description:
+          type: string
+        geo:
+          type: string
+        photo_names:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    PostWithComments:
+      allOf:
+        - $ref: '#/components/schemas/PostResponse'
+        - type: object
+          properties:
+            photo_urls:
+              type: array
+              items:
+                type: string
+                format: url
+                description: CDN URLs for direct photo download
+            comments:
+              type: array
+              items:
+                $ref: '#/components/schemas/CommentResponse'
+          required: [photo_urls, comments]
+
+    # ---------- PHOTOS ----------
+    PhotoAddRequest:
+      type: object
+      required: [name, photo_base64]
+      properties:
+        name:
+          type: string
+          description: Unique photo name (within the user's scope)
+          example: "sunset_view.png"
+        photo_base64:
+          type: string
+          format: byte
+          description: Base64 encoded image (max 10 MB)
+
+    PhotoAddResponse:
+      type: object
+      properties:
+        name:
+          type: string
+        post_id:
+          type: string
+          format: uuid
+
+    # ---------- COMMENTS ----------
+    CommentCreateRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          maxLength: 200
+          example: "Great post!"
+
+    CommentUpdateRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          maxLength: 200
+          example: "Updated comment"
+
+    CommentResponse:
+      type: object
+      properties:
+        comment_id:
+          type: string
+          format: uuid
+        author:
+          type: string
+          description: Username of the comment author
+          example: "john_doe"
+        text:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    # ---------- ERRORS ----------
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code
+          example: "ALREADY_SUBSCRIBED"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "You are already subscribed to this user"

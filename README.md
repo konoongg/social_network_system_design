@@ -28,7 +28,7 @@
 - 99% of users create average 1 post/month
 
 ### Posts
-- Photo: max 10 MB, max 10 per post
+- Photo: max 2 MB, max 10 per post
 - Description: max 500 chars (1000 bytes)
 - Comments per post: max 1000, average 20
 - 0.1% of posts have a large number of comments (close to 1000)
@@ -49,7 +49,7 @@
 ##### Write (posts)
 - Write RPS:
   `(10 000 000 × 0.99 × 0.05 + 10 000 000 × 0.01 × 3) / 86 400 ≈ 10 RPS`
-- Write traffic: max 100 MB/s (upload of photos + metadata)
+- Write traffic: max 20 MB/s + 20 KB/s (upload of photos + metadata)
 
 #### Marks (likes)
 - Average user creates 20 likes/day
@@ -65,14 +65,41 @@
   `10M × 300 posts/day × 20 comments = 60B comment views/day` → ~694 000 RPS.
 - Read  traffic: `694 000 × 400 bytes ≈ 265 MB/s`
 
-### Additional technical requirements
+## disk evaluation for 1 year
 
-#### CDN & media delivery
-- All photos must be served via CDN.
-- Peak CDN egress bandwidth: ≥ 5 Tbps.
-- CDN must have Points of Presence (PoP) in Russia, Kazakhstan, Tajikistan.
+### Posts
+ - use postgres for posts
+ - capacity: 20kb/s (meta data + des) * 86400 * 365 =  ~600 GB
+ - Raid: 2
+ - Disks_for_capacity: 600 GB / 32 TB (HDD)  = 1 (or 1 ssd)
+ - Disks_for_throughput = 20 kb/s / 100 MB/S = 1 (or 1 ssd)
+ - Disks_for_iops = 700 / 100 (HDD) = 7 (or 1 ssd)
+ - Disks: 14 hdd or 2 ssd
 
-#### Storage tiering (always stored)
-- Hot storage (SSD) for last 6 months of photos.
-- Cold storage (S3-compatible, HDD) for older photos and all metadata.
-- Automatic migration policy: move photos older than 6 months to cold tier.
+### Marks (likes)
+ - use postgres
+ - capacity: 2kb/s * 86400 * 365 = ~60 GB
+ - Raid: 2
+ - Disks_for_capacity: 60 GB / 32 TB (HDD) * RAID = 2
+ - Disks_for_throughput = 2 kb/s / 100 MB/S = 1 (or 1 ssd)
+ - Disks_for_iops = 230 / 100 (HDD) = 3 (or 1 ssd)
+ - Disks: 6 hdd or 2 ssd
+
+### Comments
+ - use postgres
+ - capacity: 100kb/s  * 86400 * 365 = ~3 TB
+ - Raid: 2
+ - Disks_for_capacity: 60 GB / 32 TB (HDD) * RAID = 2
+ - Disks_for_throughput = 100 kb/s / 100 MB/S = 1 (or 1 ssd)
+ - Disks_for_iops = 230 / 100 (HDD) = 3 (or 1 ssd)
+ - Disks: 6 hdd or 2 ssd
+
+
+### media
+- use s3
+- capacity: 20mb/s * 86400 * 365 = ~600 TB
+- Raid: 2
+- Disks_for_capacity: 600 TB / 32 TB (HDD) = 20  (or 1 SSD sata)
+- Disks_for_throughput = 20 mb/s / 100 MB/S = 1 (or 1 ssd)
+- Disks_for_iops = 10 / 100 (HDD) = 1 (or 1 ssd)
+- Disks: 40 hdd or 40 ssd nvme or 2 ssd sata

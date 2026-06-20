@@ -278,7 +278,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /posts/{post_id}/photos:
+  /posts/photos:
     post:
       tags: [Posts]
       summary: Add a photo to an existing post
@@ -324,7 +324,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /posts/{post_id}/photos/{photo_name}:
+  /posts/photos/{photo_name}:
     get:
       tags: [Posts]
       summary: Get a photo by post ID and photo name
@@ -398,7 +398,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
 
   # ==================== LIKES ====================
-  /posts/{post_id}/like:
+  /posts/{post_id}/likePost:
     post:
       tags: [Likes]
       summary: Like a post
@@ -457,7 +457,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
 
   # ==================== SUBSCRIBE / UNSUBSCRIBE ====================
-  /users/{username}/subscribe:
+  /users/{username}/subscribeUser:
     post:
       tags: [Subscriptions]
       summary: Subscribe to a user

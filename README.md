@@ -120,3 +120,8 @@
  - 2 shards with 2 replics, 1 disk (2 with raid) in a replica
  - don't use slaves for read, because we have problems with data's size
  - sharding by user's location (users mostly search people from same region). We use sharding for geo-distributing and for laws about local data saves.
+
+
+## design
+
+![alt text](image.png)

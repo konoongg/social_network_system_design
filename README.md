@@ -76,6 +76,15 @@
  - Disks_for_iops = 700 / 100 (HDD) = 7 (or 1 ssd)
  - Disks: 14 hdd or 2 ssd
 
+ #### replication && sharding
+ - use HDD
+ - replication_factor: 3 (auto leader's elections)
+ - aync replication (we can miss some data)
+ - use slaves for read, because we have problems with iops
+ - 2 shards with 3 replics, 2 disk (4 with raid) in a replica
+ - sharding by user's location (users mostly search people from same region). We use sharding for geo-distributing and for laws about local data saves.
+ - 1200 iops, 384 TB 1200 MB/s - we can use this for Marks and comments too
+
 ### Marks (likes)
  - use postgres
  - capacity: 2kb/s * 86400 * 365 = ~60 GB
@@ -103,3 +112,11 @@
 - Disks_for_throughput = 20 mb/s / 100 MB/S = 1 (or 1 ssd)
 - Disks_for_iops = 10 / 100 (HDD) = 1 (or 1 ssd)
 - Disks: 40 hdd or 40 ssd nvme or 2 ssd sata
+
+ #### replication && sharding
+ - use ssd SATA
+ - replication_factor: 2 (auto leader's elections), with one referee
+ - aync replication (we can miss some data)
+ - 2 shards with 2 replics, 1 disk (2 with raid) in a replica
+ - don't use slaves for read, because we have problems with data's size
+ - sharding by user's location (users mostly search people from same region). We use sharding for geo-distributing and for laws about local data saves.

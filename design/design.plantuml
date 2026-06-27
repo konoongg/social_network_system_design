@@ -1,0 +1,115 @@
+@startuml
+' Style definitions
+skinparam rectangle {
+    BackgroundColor #fefefe
+    BorderColor #333333
+    FontColor #000000
+    FontSize 12
+}
+skinparam component {
+    BackgroundColor #e0f0ff
+    BorderColor #4682b4
+}
+skinparam database {
+    BackgroundColor #fff0e0
+    BorderColor #d2691e
+}
+skinparam cloud {
+    BackgroundColor #f0f8ff
+    BorderColor #4682b4
+}
+skinparam node {
+    BackgroundColor #f5f5dc
+    BorderColor #8b4513
+}
+skinparam arrow {
+    Color #444444
+    FontColor #444444
+}
+
+' Actors and external systems
+actor "User" as User
+
+' Gateway
+rectangle "API Gateway" as Gateway <<REST>>
+
+' Services
+component "Post & Sub Service" as PostService <<REST>>
+note left of PostService
+    Handles posts, likes, comments, and subscriptions.
+    Single service due to high data cohesion and tight coupling.
+end note
+
+component "Media Service" as MediaService <<WebSocket>>
+
+' PostgreSQL cluster in its own box
+node "Load Balancer" as LbDb
+database "PostgreSQL Cluster" as PgCluster {
+    database "Master" as DbMaster
+    database "Replica 1" as DbReplica1
+    database "Replica 2" as DbReplica2
+}
+
+' Two separate Redis clusters
+cloud "Redis Cluster\n(Post & Sub)" as RedisPost
+cloud "Redis Cluster\n(Media Service)" as RedisMedia
+
+' S3 cluster in its own box
+node "Load Balancer" as LbS3
+database "S3 Cluster" as S3Cluster {
+    cloud "Master" as S3Master
+    cloud "Replica" as S3Replica
+    cloud "Referee" as S3Referee
+}
+
+' Separate boxes for failover descriptions
+rectangle "Auto Failover:\n- On Master failure, one replica\n  becomes Master automatically.\n- Ensures high availability." as FailoverPg
+rectangle "Auto Failover:\n- On Master failure, a quorum\n  elects a new leader.\n- Reads still available from Replica\n  during failover." as FailoverS3
+
+' Interactions
+User --> Gateway : REST
+
+Gateway --> MediaService : WebSocket
+Gateway --> PostService : REST
+
+PostService --> LbDb : DB requests
+LbDb --> DbMaster : Write
+LbDb --> DbReplica1 : Read
+LbDb --> DbReplica2 : Read
+DbMaster -left-> DbReplica1 : Async replication
+DbMaster -left-> DbReplica2 : Async replication
+
+' Each service uses its own Redis
+PostService --> RedisPost : Cache popular posts\nand posts from popular authors
+MediaService --> RedisMedia : Cache popular photos\n(images, thumbnails)
+
+MediaService --> LbS3 : S3 requests
+LbS3 --> S3Master : Read/Write
+LbS3 --> S3Replica : Read
+
+' Connect failover boxes to their clusters
+PgCluster -[hidden]right-> FailoverPg
+S3Cluster -[hidden]right-> FailoverS3
+
+' Additional notes
+note right of RedisPost
+    <b>Caching strategy:</b>
+    - Most popular posts
+    - Automatic caching of posts
+      from popular authors
+end note
+
+note right of RedisMedia
+    <b>Purpose:</b>
+    - Popular photos (images)
+    - Thumbnails for fast delivery
+    - Isolation from post cache
+end note
+
+note bottom of S3Cluster
+    <b>Referee node role:</b>
+    - Participates in leader election
+    - Does not store data
+end note
+
+@enduml
